@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chatbot Servicio al Cliente</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    #chat-container { width: 400px; height: 600px; background: #fff; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); display: flex; flex-direction: column; overflow: hidden; }
+    #chat-header { background: #185FA5; padding: 16px 18px; display: flex; align-items: center; gap: 10px; }
+    #avatar { width: 38px; height: 38px; border-radius: 50%; background: #B5D4F4; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 16px; color: #0C447C; }
+    #company-title { font-size: 15px; font-weight: 600; color: #fff; }
+    #status { font-size: 12px; color: #B5D4F4; display: flex; align-items: center; gap: 4px; }
+    #status-dot { width: 7px; height: 7px; border-radius: 50%; background: #9FE1CB; display: inline-block; }
+    #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #f8f9fa; }
+    .bubble { max-width: 80%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+    .bubble.bot { background: #fff; color: #1a1a2e; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #e8e8e8; }
+    .bubble.user { background: #185FA5; color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .time { font-size: 11px; color: #999; padding: 0 4px; }
+    .time.user { text-align: right; align-self: flex-end; }
+    .time.bot { align-self: flex-start; }
+    .typing { align-self: flex-start; background: #fff; border: 1px solid #e8e8e8; border-radius: 16px; border-bottom-left-radius: 4px; padding: 12px 16px; display: flex; gap: 5px; align-items: center; }
+    .typing span { width: 7px; height: 7px; border-radius: 50%; background: #aaa; animation: bounce 1.2s infinite; }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+    #quick-replies { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 14px; background: #fff; border-top: 1px solid #f0f0f0; }
+    .quick-btn { font-size: 12px; padding: 5px 12px; border: 1px solid #185FA5; border-radius: 14px; background: transparent; color: #185FA5; cursor: pointer; }
+    .quick-btn:hover { background: #E6F1FB; }
+    #input-area { padding: 12px 14px; background: #fff; border-top: 1px solid #f0f0f0; display: flex; gap: 8px; align-items: flex-end; }
+    #user-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 9px 14px; font-size: 14px; resize: none; font-family: inherit; outline: none; max-height: 80px; }
+    #user-input:focus { border-color: #185FA5; }
+    #send-btn { width: 38px; height: 38px; border-radius: 50%; background: #185FA5; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    #send-btn:hover { background: #0C447C; }
+    #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+    #send-btn svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; }
+    #powered { text-align: center; font-size: 11px; color: #bbb; padding: 6px; background: #fff; }
+  </style>
+</head>
+<body>
+<div id="chat-container">
+  <div id="chat-header">
+    <div id="avatar">A</div>
+    <div>
+      <div id="company-title">Asistente Virtual</div>
+      <div id="status"><span id="status-dot"></span> En línea</div>
+    </div>
+  </div>
+  <div id="messages"></div>
+  <div id="quick-replies">
+    <button class="quick-btn" onclick="sendQuick('¿Cuáles son sus horarios?')">Horarios</button>
+    <button class="quick-btn" onclick="sendQuick('Quiero hablar con un agente')">Agente humano</button>
+    <button class="quick-btn" onclick="sendQuick('¿Cómo hago un reclamo?')">Reclamos</button>
+    <button class="quick-btn" onclick="sendQuick('¿Cuáles son sus servicios?')">Servicios</button>
+  </div>
+  <div id="input-area">
+    <textarea id="user-input" rows="1" placeholder="Escribe tu mensaje..."></textarea>
+    <button id="send-btn" onclick="sendMessage()">
+      <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+  <div id="powered">Powered by Claude AI</div>
+</div>
+<script>
+  const EMPRESA = "Mi Empresa";
+  const SERVER_URL = "http://localhost:3000";
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('user-input');
+  const sendBtn = document.getElementById('send-btn');
+  let history = [];
+  let isLoading = false;
+
+  function getTime() {
+    return new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+  }
+  function addBubble(text, role) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble ' + role;
+    bubble.textContent = text;
+    const time = document.createElement('div');
+    time.className = 'time ' + role;
+    time.textContent = getTime();
+    messagesEl.appendChild(bubble);
+    messagesEl.appendChild(time);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  function showTyping() {
+    const t = document.createElement('div');
+    t.className = 'typing'; t.id = 'typing';
+    t.innerHTML = '<span></span><span></span><span></span>';
+    messagesEl.appendChild(t);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  function removeTyping() {
+    const t = document.getElementById('typing');
+    if (t) t.remove();
+  }
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || isLoading) return;
+    inputEl.value = '';
+    isLoading = true;
+    sendBtn.disabled = true;
+    addBubble(text, 'user');
+    history.push({ role: 'user', content: text });
+    showTyping();
+    try {
+      const res = await fetch(`${SERVER_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history, empresa: EMPRESA })
+      });
+      const data = await res.json();
+      removeTyping();
+      const reply = data.reply || data.error || 'Error al obtener respuesta.';
+      addBubble(reply, 'bot');
+      history.push({ role: 'assistant', content: reply });
+    } catch(e) {
+      removeTyping();
+      addBubble('No pude conectarme al servidor. ¿Está corriendo en http://localhost:3000?', 'bot');
+    }
+    isLoading = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+  function sendQuick(text) { inputEl.value = text; sendMessage(); }
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  setTimeout(() => {
+    addBubble(`¡Hola! Soy el asistente virtual de ${EMPRESA}. ¿En qué puedo ayudarte hoy?`, 'bot');
+  }, 400);
+</script>
+</body>
+</html>
